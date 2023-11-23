@@ -6,8 +6,6 @@
 
 #include <stdlib.h>
 
-
-
 #define REG(P) (*(volatile uint32_t *) (P))
 
 #define GPIO_BASE 0x10012000
@@ -36,47 +34,83 @@
 #define T_LONG 2*T_SHORT
 #define T_VERY_LONG 2 * T_LONG
 
+#define delayMultiplicator 10000
 
- #define delayMultiplicator 10000
+// globale Variablen
 
-int greenButtonState = 0;  // Deklaration als globale Variable
+int greenButtonState = 0;
 int blueButtonState = 0;
 int yellowButtonState = 0;
 int redButtonState = 0;
 int state = 1;
 
-
 int t = 0;
-int anzahlLed = 0;
-
-
+int ledCount = 0;
 
 int level = 1;
 
-int saveLedValue[20];
-int myInput[20];
-
-
-
 int counterNachahmphase = 0;
 
+int input[20];
+int saveLedValue[20];
 
+// Help funktions
 int getRandomNumber(int maxValue) {
    
-    int zufallszahl = rand()% maxValue +0;
-    return zufallszahl;
+    int random = rand()% maxValue +0;
+    return random;
 }
 
-
-void verlorensequenz(){
-
+void delay(int number_of_seconds) {
+for(int i =0;i<number_of_seconds*delayMultiplicator;i++){}
 }
+
+void decimalToBinary(int value) {
+    int temp = value;
+    int zahl[4];
+    int i = 3;
+    
+    // fill with 0
+    for (int k = 0; k < 4; k++) {
+        zahl[k] = 0;
+    }
+
+    // decimal to binary
+    while (temp != 0 && i >= 0) {
+        zahl[i] = temp % 2;
+        temp = temp / 2;
+        i--;
+    }
+
+    // output as binary
+    for (int j = 0; j < 4; j++) {
+        printf("%i\n", zahl[j]);
+    }
+}
+
+int compareArray(int a[], int b[]) {
+    if (a[currentInputIndex] == b[currentInputIndex]) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+// LED functions
+void toggleLED_OFF(int led) {
+    REG(GPIO_BASE + GPIO_OUTPUT_VAL) &= ~(1 << led);
+}
+
+void toggleLED_ON(int led) {
+    REG(GPIO_BASE + GPIO_OUTPUT_VAL) |= (1 << led);
+}
+
 void toggleLED_ON_ButtonIndex(int value){
    
-    if(value==0){
+    if(value == 0){
         toggleLED_ON(GREEN_LED);
     }
-    else if(value==1){
+    else if(value == 1){
         toggleLED_ON(BLUE_LED);
     }
      else if(value==2){
@@ -104,19 +138,122 @@ void toggleLED_OFF_ButtonIndex(int value){
     }
 }
 
-
-
-
-void delay(int number_of_seconds) {
-for(int i =0;i<number_of_seconds*delayMultiplicator;i++){}
+void toggle_LED_ON_ALL(){
+    toggleLED_ON(GREEN_LED);
+    toggleLED_ON(BLUE_LED);
+    toggleLED_ON(YELLOW_LED);
+    toggleLED_ON(RED_LED);
 }
 
+void toggle_LED_OFF_ALL(){
+    toggleLED_OFF(GREEN_LED);
+    toggleLED_OFF(BLUE_LED);
+    toggleLED_OFF(YELLOW_LED);
+    toggleLED_OFF(RED_LED);
+}
 
+void indexToColor(int index){
+    if(index==0){
+        printf("GREEN\n");
+    }
+    else if(index==1){
+        printf("BLUE\n");
+    }
+    else if(index==2){
+        printf("YELLOW\n");
+    }
+    else if(index==3){
+        printf("RED\n");
+    }
+}
 
+// Button Functions
+int currentInputIndex = -1;
 
+int buttonIndex = -1;
 
+void handleButtonPress(int button, int *buttonState) {
+    if (!(REG(GPIO_BASE + GPIO_INPUT_VAL) & (1 << button)) && !(*buttonState)) {
+        // Vorbereitungsphase
+        if (state == 1 && button == GREEN_BUTTON) {
+            state = 2;
+            vorfuehrphase();
+        }
+        // Nachahmphase
+        else if (state == 3) { 
+             buttonIndex = -1;
+            
+            if (button == GREEN_BUTTON || button == BLUE_BUTTON || button == YELLOW_BUTTON || button == RED_BUTTON) {
+                
+                if (button == GREEN_BUTTON) buttonIndex = 0;
+                else if (button == BLUE_BUTTON) buttonIndex = 1;
+                else if (button == YELLOW_BUTTON) buttonIndex = 2;
+                else if (button == RED_BUTTON) buttonIndex = 3;
 
+                currentInputIndex++;
+                input[currentInputIndex] = buttonIndex;
+                
+                if (compareArray(saveLedValue, input)) {
+                    if (ledCount-1 == currentInputIndex) {
+                         currentInputIndex = -1;
+                        state = 5;
+                        zwischenSequenz();
+                    }
+                    toggleLED_ON_ButtonIndex(buttonIndex);
+                    delay(T_SHORT);
+                       toggleLED_OFF_ButtonIndex(buttonIndex);
+                } else {
+                    currentInputIndex =-1;
+                    state = 4;
+                    verlorenSequenz();
+                }
 
+                // mark button as pressed
+                *buttonState = 1;
+            }
+        } else{
+            currentInputIndex = -1;
+             state = 4;
+            verlorenSequenz();
+        }
+    } else if ((REG(GPIO_BASE + GPIO_INPUT_VAL) & (1 << button))) {
+        // mark button as not pressed
+        *buttonState = 0;
+    }
+
+}
+
+void checkButtonInput() {
+    handleButtonPress(GREEN_BUTTON, &greenButtonState);
+    handleButtonPress(BLUE_BUTTON, &blueButtonState);
+    handleButtonPress(YELLOW_BUTTON, &yellowButtonState);
+    handleButtonPress(RED_BUTTON, &redButtonState);
+}
+
+int waitForButtonPress(int timeout) {
+    int elapsedTime = 0;
+
+    while (elapsedTime < timeout * delayMultiplicator) {
+        // check what button is pressed
+        if (greenButtonState) {
+            return GREEN_BUTTON;
+        } else if (blueButtonState) {
+            return BLUE_BUTTON;
+        } else if (yellowButtonState) {
+            return YELLOW_BUTTON;
+        } else if (redButtonState) {
+            return RED_BUTTON;
+        }
+
+        elapsedTime++;
+    }
+
+    // NO Button has been pressed in time
+    return -1;
+}
+
+// Sequenzen
+void verlorensequenz(){}
 
 void bereitschaftsmodus() {
 	level = 1;
@@ -133,330 +270,149 @@ void bereitschaftsmodus() {
     toggleLED_OFF(YELLOW_LED);
 
 	toggleLED_ON(RED_LED);
-  delay(T_SHORT); 
+    delay(T_SHORT); 
     toggleLED_OFF(RED_LED);
-
-   
-
-
 }
 
 void vorfuehrphase() {
-    
-
 
     toggleLED_ON(BLUE_LED);
      toggleLED_ON(YELLOW_LED);
-    delay(T_SHORT); // T-_SHORT an
+    delay(T_SHORT);
 
     toggleLED_OFF(BLUE_LED);
     toggleLED_OFF(YELLOW_LED);
-    delay(T_SHORT); // T-_SHORT an
+    delay(T_SHORT);
 
-    
-    
-
-if(level==1){
-  anzahlLed = 3; // Anzahl der LEDs
-     t = T_LONG; // Zeit für jede LED (initial für Level 1)
-
-}
-   
-
-
-    
-    for (int i = 0; i < anzahlLed; ++i) {
-        int led = getRandomNumber(3); // Zufällige Auswahl einer LED
-         indexToColor(led);
-        saveLedValue[i] = led;
-         delay(t); // LED einschalten für t Millisekunden
-        toggleLED_ON_ButtonIndex(led);
-         delay(T_SHORT); // Kurze Pause zwischen den LEDs
-        toggleLED_OFF_ButtonIndex(led);
-      
-       
-       
+    if(level == 1){
+    ledCount = 3;
+    // Time for every LED. Starts at Level 1
+    t = T_LONG;
     }
 
-    // Alle LEDs einschalten und nach T_SHORT ausschalten
+    for (int i = 0; i < ledCount; ++i) {
+        // random LED
+        int led = getRandomNumber(3);
+         indexToColor(led);
+        saveLedValue[i] = led;
+        // LED ON for t Milliseconds
+         delay(t);
+        toggleLED_ON_ButtonIndex(led);
+        // Pause between LEDs
+         delay(T_SHORT);
+        toggleLED_OFF_ButtonIndex(led);
+    }
+    // switch on all LEDs 
     toggle_LED_ON_ALL();
     delay(T_SHORT);
     toggle_LED_OFF_ALL();
    
-
     //Nachahmphase 
      state = 3;
-    
-    
 }
 
-
-
-
-
-
-
-
 void verlorenSequenz(){
-   if(state==4){
-    level = 1;
-toggleLED_ON(RED_LED);
-toggleLED_ON(GREEN_LED);
-delay(T_SHORT);
-toggleLED_OFF(RED_LED);
-toggleLED_OFF(GREEN_LED);
+    if(state==4){
+        level = 1;
+        toggleLED_ON(RED_LED);
+        toggleLED_ON(GREEN_LED);
+        delay(T_SHORT);
+        toggleLED_OFF(RED_LED);
+        toggleLED_OFF(GREEN_LED);
+
+        delay(T_SHORT);
+
+        toggleLED_ON(RED_LED);
+        toggleLED_ON(GREEN_LED);
+        delay(T_SHORT);
+        toggleLED_OFF(RED_LED);
+        toggleLED_OFF(GREEN_LED);
 
 
-delay(T_SHORT);
+        // Level Count as binary
+        decimalToBinary(level);
+        delay(T_VERY_LONG);
 
+        printf("Level:\n");
+        decimalToBinary(level);
 
-toggleLED_ON(RED_LED);
-toggleLED_ON(GREEN_LED);
-delay(T_SHORT);
-toggleLED_OFF(RED_LED);
-toggleLED_OFF(GREEN_LED);
-
-
-// Gebe Level als Bin-Zahl aus
-dezTOBin(level);
-delay(T_VERY_LONG);
-
- printf("Level:\n");
- dezTOBin(level);
-
-
-state = 1;
-bereitschaftsmodus();
-
-
-   }
-
-
-
-
+        state = 1;
+        bereitschaftsmodus();
+    }
 }
 
 void zwischenSequenz(){
-
-
     if(state==5){
-toggleLED_ON(GREEN_LED);
-delay(T_SHORT);
-toggleLED_ON(YELLOW_LED);
-delay(T_SHORT);
-toggleLED_ON(GREEN_LED);
-delay(T_SHORT);
-toggleLED_ON(YELLOW_LED);
-delay(T_SHORT);
+        toggleLED_ON(GREEN_LED);
+        delay(T_SHORT);
+        toggleLED_ON(YELLOW_LED);
+        delay(T_SHORT);
+        toggleLED_ON(GREEN_LED);
+        delay(T_SHORT);
+        toggleLED_ON(YELLOW_LED);
+        delay(T_SHORT);
 
+        toggleLED_ON(BLUE_LED);
+        delay(T_SHORT);
+        toggleLED_ON(RED_LED);
+        delay(T_SHORT);
+        toggleLED_ON(BLUE_LED);
+        delay(T_SHORT);
+        toggleLED_ON(RED_LED);
+        delay(T_SHORT);
 
-toggleLED_ON(BLUE_LED);
-delay(T_SHORT);
-toggleLED_ON(RED_LED);
-delay(T_SHORT);
-toggleLED_ON(BLUE_LED);
-delay(T_SHORT);
-toggleLED_ON(RED_LED);
-delay(T_SHORT);
+        if(level<10){
+            ledCount++;
+            level++;
 
-if(level<10){
-anzahlLed++;
-level++;
-if(level%2==0){
-    t = t *0.90;
-}
-//Neues Level wird geladen
-state = 2;
-vorfuehrphase();
+            if(level%2==0){
+                t = t *0.90;
+            }
 
-
-}else{
-    state = 6;
-    endModus();
-   
-}
-    }
-  
-
-}
-
-
-void endModus(){
-if(state==6){
-delay(T_SHORT);
-toggle_LED_ON_ALL();
-delay(T_SHORT);
-toggle_LED_OFF_ALL();
-
-delay(T_LONG);
-
-toggle_LED_ON_ALL();
-delay(T_SHORT);
-toggle_LED_OFF_ALL();
-
-delay(T_SHORT);
-
-toggle_LED_ON_ALL();
-delay(T_SHORT);
-toggle_LED_OFF_ALL();
-
-delay(T_LONG);
-
-toggle_LED_ON_ALL();
-delay(T_SHORT);
-toggle_LED_OFF_ALL();
-
-
-state = 1;
-bereitschaftsmodus();
-
-
-}
-
-}
-
-
-void toggleLED_OFF(int led) {
-    REG(GPIO_BASE + GPIO_OUTPUT_VAL) &= ~(1 << led);
-}
-
-void toggleLED_ON(int led) {
-    REG(GPIO_BASE + GPIO_OUTPUT_VAL) |= (1 << led);
-}
-
-void dezTOBin(int value) {
-    int temp = value;
-    int zahl[4];
-    int i = 3;
-    
-    // Fülle das Array mit Nullen
-    for (int k = 0; k < 4; k++) {
-        zahl[k] = 0;
-    }
-
-    // Umwandlung von Dezimal zu Binär
-    while (temp != 0 && i >= 0) {
-        zahl[i] = temp % 2;
-        temp = temp / 2;
-        i--;
-    }
-
-    // Ausgabe des Binärwerts
-    for (int j = 0; j < 4; j++) {
-        printf("%i\n", zahl[j]);
-    }
-   
-
-  
-}
-
-
-
-
-void checkButtonInput() {
-    handleButtonPress(GREEN_BUTTON, &greenButtonState);
-    handleButtonPress(BLUE_BUTTON, &blueButtonState);
-    handleButtonPress(YELLOW_BUTTON, &yellowButtonState);
-    handleButtonPress(RED_BUTTON, &redButtonState);
-
- 
-
-}
-
-int currentInputIndex = -1;
-
-int compareArray(int a[], int b[]) {
-    if (a[currentInputIndex] == b[currentInputIndex]) {
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
-  int buttonIndex = -1;
-
-
-void handleButtonPress(int button, int *buttonState) {
-    if (!(REG(GPIO_BASE + GPIO_INPUT_VAL) & (1 << button)) && !(*buttonState)) {
-        // Vorbereitungsphase
-        if (state == 1 && button == GREEN_BUTTON) {
+            //new Level loaded
             state = 2;
             vorfuehrphase();
-        } else if (state == 3) { // Nachahmphase
-             buttonIndex = -1;
-            
-
-            if (button == GREEN_BUTTON || button == BLUE_BUTTON || button == YELLOW_BUTTON || button == RED_BUTTON) {
-                
-                if (button == GREEN_BUTTON) buttonIndex = 0;
-                else if (button == BLUE_BUTTON) buttonIndex = 1;
-                else if (button == YELLOW_BUTTON) buttonIndex = 2;
-                else if (button == RED_BUTTON) buttonIndex = 3;
-
-                currentInputIndex++;
-                myInput[currentInputIndex] = buttonIndex;
-                
-                if (compareArray(saveLedValue, myInput)) {
-                    if (anzahlLed-1 == currentInputIndex) {
-                         currentInputIndex = -1;
-                        state = 5;
-                        zwischenSequenz();
-                    }
-                    toggleLED_ON_ButtonIndex(buttonIndex);
-                    delay(T_SHORT);
-                       toggleLED_OFF_ButtonIndex(buttonIndex);
-                } else {
-                    currentInputIndex =-1;
-                    state = 4;
-                    verlorenSequenz();
-                }
-
-                *buttonState = 1;  // Knopf als gedrückt markiert 
-            }
-        } else{
-            currentInputIndex = -1;
-             state = 4;
-            verlorenSequenz();
         }
-    } else if ((REG(GPIO_BASE + GPIO_INPUT_VAL) & (1 << button))) {
-        *buttonState = 0;  // Knopf als nicht gedrückt markiert 
-    }
 
+        else{
+            state = 6;
+            endModus();
+        }
+    }
 }
 
+void endModus(){
+    if(state==6){
+        delay(T_SHORT);
+        toggle_LED_ON_ALL();
+        delay(T_SHORT);
+        toggle_LED_OFF_ALL();
 
+        delay(T_LONG);
 
+        toggle_LED_ON_ALL();
+        delay(T_SHORT);
+        toggle_LED_OFF_ALL();
 
+        delay(T_SHORT);
 
-int waitForButtonPress(int timeout) {
-    int elapsedTime = 0;
+        toggle_LED_ON_ALL();
+        delay(T_SHORT);
+        toggle_LED_OFF_ALL();
 
-    while (elapsedTime < timeout * delayMultiplicator) {
-        // Überprüfe, welcher Knopf gedrückt wurde
-        if (greenButtonState) {
-            return GREEN_BUTTON;
-        } else if (blueButtonState) {
-            return BLUE_BUTTON;
-        } else if (yellowButtonState) {
-            return YELLOW_BUTTON;
-        } else if (redButtonState) {
-            return RED_BUTTON;
-        }
+        delay(T_LONG);
 
-        // Simuliere das Warten, indem die Zählvariable incrementiert wird
-        elapsedTime++;
+        toggle_LED_ON_ALL();
+        delay(T_SHORT);
+        toggle_LED_OFF_ALL();
+
+        state = 1;
+        bereitschaftsmodus();
     }
-
-    // Kein Knopf wurde innerhalb der Zeitspanne gedrückt
-    return -1;
 }
 
 int main(void) {
     
-   
-
-
-  
     // Setup LEDs as output
     REG(GPIO_BASE + GPIO_INPUT_EN) &= ~((1 << GREEN_LED) | (1 << BLUE_LED) | (1 << YELLOW_LED) | (1 << RED_LED));
     REG(GPIO_BASE + GPIO_OUTPUT_EN) |= ((1 << GREEN_LED) | (1 << BLUE_LED) | (1 << YELLOW_LED) | (1 << RED_LED));
@@ -470,21 +426,10 @@ int main(void) {
     bereitschaftsmodus();
    
     while (1) {
-        
-           checkButtonInput();
-           
-
-          
-
-
+        checkButtonInput();
     }
-   
-
     return 0;
 }
-
-
-
 
 void printArray(int value[],int size) {
     
@@ -492,37 +437,4 @@ void printArray(int value[],int size) {
         printf("%d",value[i]);
     }
     printf("\n");
-    
-}
-
-
-void toggle_LED_ON_ALL(){
-    toggleLED_ON(GREEN_LED);
-     toggleLED_ON(BLUE_LED);
-      toggleLED_ON(YELLOW_LED);
-       toggleLED_ON(RED_LED);
-}
-
-
-void toggle_LED_OFF_ALL(){
-    toggleLED_OFF(GREEN_LED);
-     toggleLED_OFF(BLUE_LED);
-      toggleLED_OFF(YELLOW_LED);
-       toggleLED_OFF(RED_LED);
-}
-
-
-void indexToColor(int index){
-if(index==0){
-    printf("GREEN\n");
-}else if(index==1){
-    printf("BLUE\n");
-}
-else if(index==2){
-    printf("YELLOW\n");
-}
-else if(index==3){
-    printf("RED\n");
-}
-
 }
